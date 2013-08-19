@@ -150,6 +150,19 @@ while true {
 		print "Received data on extra channel $id"
 	}
 }
+
+# Wait for the job to complete
+while true {
+	id = BLPOP /jobs/events
+	if id == $id {
+		status = GET /jobs/$id
+		if status != "" {
+			print "Job $id exited with status $status"
+			break
+		}
+	}
+}
+
 ```
 
 
