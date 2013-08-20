@@ -4,6 +4,7 @@ import (
 	"log"
 	"fmt"
 	"flag"
+	"strings"
 	"github.com/dotcloud/beam"
 )
 
@@ -20,6 +21,6 @@ func main() {
 }
 
 func JobHello(name string, args []string, env map[string]string, streams *beam.Streamer, db beam.DB) error {
-	fmt.Printf("Hello world!\n")
+	fmt.Printf("Hello, %s!\n", strings.Join(args, " "))
 	return nil
 }
