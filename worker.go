@@ -80,7 +80,7 @@ func (w *Worker) Work() error {
 		}
 		Debugf("Received instruction to start job %s", id)
 		// Acquire lock on the job
-		acquired, err := redis.Bool(conn.Do("SETNX", w.KeyPath(id, "worker"), "me"))
+		acquired, err := redis.Bool(conn.Do("SETNX", w.KeyPath(id), "me"))
 		if err != nil {
 			return err
 		}
