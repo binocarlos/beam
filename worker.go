@@ -3,32 +3,36 @@ package beam
 import (
 	"net"
 	"fmt"
+	"github.com/garyburd/redigo/redis"
 )
 
-type Server struct {
+type Worker struct {
+	redigo.Conn
+	Prefix string	// The prefix for all redis keys
 	handlers map[string]JobHandler
+	jobs	[]*Job
 }
 
-
-// NewServer initializes a new beam server.
-func NewServer() *Server {
-	return &Server{
+// NewWorker initializes a new beam worker.
+func NewWorker(conn net.Conn, prefix string) *Worker{
+	return &Worker{
+		Conn: redis.NewConn(conn, 0, 0),
+		Prefix: prefix,
 		handlers: make(map[string]JobHandler),
 	}
 }
 
-
 // RegisterJob exposes the function <h> as a remote job to be invoked by clients
 // under the name <name>.
-func (srv *Server) RegisterJob(name string, h JobHandler) {
-	srv.handlers[name] = h
+func (w *Worker) RegisterJob(name string, h JobHandler) {
+	w.handlers[name] = h
 }
 
 // ServeJob is the server's default job handler. It is called every time a new job is created.
 // It looks up a handler registered at <name>, and calls it with the same arguments. If no handler
 // is registered, it returns an error.
-func (srv *Server) ServeJob(name string, args []string, env map[string]string, streams Streamer, db DB) error {
-	h, exists := srv.handlers[name]
+func (w *Worker) ServeJob(name string, args []string, env map[string]string, streams Streamer, db DB) error {
+	h, exists := w.handlers[name]
 	if !exists {
 		return fmt.Errorf("No such job: %s", name)
 	}
@@ -48,20 +52,8 @@ func (srv *Server) ServeJob(name string, args []string, env map[string]string, s
 //
 type JobHandler func(name string, args []string, env map[string]string, streams Streamer, db DB) error
 
-
-// ListenAndServe listens on the address <addr> at protocol <proto> and then
-// handles incoming requests following the beam protocol.
-func (srv *Server) ListenAndServe(proto, addr string) error {
-	return nil
-}
-
-// Serve accepts incoming Beam connections on the listener l, and then
-// serves requests on them.
-func (srv *Server) Serve(l net.Listener) error {
-	return nil
-}
-
-// Serve serves request on the connection conn.
-func (srv *Server) ServeConn(conn net.Conn) error {
+// Work runs an infinite loop, watching its database for new requests, starting job as requested,
+// moving stream data back and forth, and updating job status as it changes.
+func (w *Worker) Work() error {
 	return nil
 }
