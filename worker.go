@@ -100,6 +100,7 @@ func (w *Worker) Connect() (redis.Conn, error) {
 
 
 func (w *Worker) startJob(id string) error {
+	Debugf("Opening new connection for job %s", id)
 	conn, err := w.Connect()
 	if err != nil {
 		return err
@@ -110,6 +111,7 @@ func (w *Worker) startJob(id string) error {
 	if err != nil {
 		return err
 	}
+	Debugf("Job name = %s", name)
 
 	// Get all arguments
 	argsVals, err := redis.Values(conn.Do("LRANGE", w.KeyPath(id, "args"), "0", "-1"))
@@ -122,6 +124,7 @@ func (w *Worker) startJob(id string) error {
 			return err
 		}
 	}
+	Debugf("Job arguments = %v", args)
 
 	// Get env
 	envVals, err := redis.Values(conn.Do("HGETALL", w.KeyPath(id, "env")))
@@ -137,6 +140,8 @@ func (w *Worker) startJob(id string) error {
 		}
 		env[k] = v
 	}
+	Debugf("Job env = %v", env)
+
 	// Setup streams
 	streams := NewStreamer(conn, w.KeyPath(id, "in"), w.KeyPath(id, "out"))
 	return w.ServeJob(name, args, env, streams, w)
