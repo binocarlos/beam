@@ -155,7 +155,7 @@ while true {
 while true {
 	id = BLPOP /jobs/wait
 	if id == $id {
-		status = GET /jobs/$id
+		status = GET /jobs/$id/status
 		if status != "" {
 			print "Job $id exited with status $status"
 			break
@@ -166,7 +166,34 @@ while true {
 ```
 
 
-### Service addressing
+### Serving jobs
+
+```
+# Wait for a job start instruction and start a new job
+# Main loop to watch for jobs and start a thread for each
+while true {
+	id = BLPOP /jobs/$id/start
+	serve_job($id)
+}
+
+# Handle a job start request
+name = GET /jobs/$id
+args = LRAGE /jobs/$id/args 0 -1
+env = HGETALL /jobs/$id/env
+handler = lookupHandler($name)
+err = handler($name, $args, $env, streamer(/jobs/$id/in, /jobs/$id/out), $db)
+if err == nil {
+	SET /jobs/$id/status 0
+} else {
+	SET /job/$id/status string(err)
+}
+RPUSH /job/$id/wait $id
+```
+
+
+
+
+## Service addressing
 
 Beam does not define how to map a particular context to a particular client connection. That is
 the responsibility of the server. For example, all clients connecting to a certain tcp port might
