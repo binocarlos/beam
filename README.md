@@ -118,7 +118,7 @@ Pseudo-code for creating a job from a client, using redis commands:
 # then stream the result.
 
 # Create a new job and get its id
-nJobs = RPUSH /jobs ls
+nJobs = RPUSH /jobs exec
 id = nJobs - 1
 
 # Set arguments
