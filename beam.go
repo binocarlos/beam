@@ -6,7 +6,6 @@
 package beam
 
 import (
-	_ "github.com/dotcloud/go-redis-server"
 	"io"
 )
 
