@@ -68,7 +68,7 @@ func (w *Worker) Work() error {
 	for {
 		// Get the list of current jobs
 		// Wait for next start event
-		vals, err := redis.Values(redis.String(conn.Do("BLPOP", w.KeyPath("start"))))
+		vals, err := redis.Values(conn.Do("BLPOP", w.KeyPath("start"), "0"))
 		if err != nil {
 			return err
 		}
