@@ -1,12 +1,11 @@
 package beam
 
 import (
+	"fmt"
 	"os"
 	"runtime"
-	"fmt"
 	"strings"
 )
-
 
 // Debug function, if the debug flag is set, then display. Do nothing otherwise
 // If Docker is in damon mode, also send the debug info on the socket
@@ -26,3 +25,24 @@ func Debugf(format string, a ...interface{}) {
 	}
 }
 
+// Take an array of "KEY=VALUE" pairs and split the elements on '=' into a array
+func splitEnv(env []string) []string {
+	out := make([]string, len(env)*2)
+	var i int
+
+	for _, pair := range env {
+		parts := strings.Split(pair, "=")
+		out[i] = parts[0]
+		out[i+1] = parts[1]
+		i += 2
+	}
+	return out
+}
+
+func asInterfaceSlice(value []string) []interface{} {
+	out := make([]interface{}, len(value))
+	for i, v := range value {
+		out[i] = v
+	}
+	return out
+}
