@@ -172,8 +172,11 @@ while true {
 # Wait for a job start instruction and start a new job
 # Main loop to watch for jobs and start a thread for each
 while true {
-	id = BLPOP /jobs/$id/start
-	serve_job($id)
+	id = BLPOP /jobs/start
+	lock_acquired = SETNX /jobs/$id/worker "$worker_id"
+	if lock_acquired {
+		serve_job($id)
+	}
 }
 
 # Handle a job start request
