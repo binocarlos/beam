@@ -66,6 +66,7 @@ func (w *Worker) Work() error {
 	}
 	defer conn.Close()
 	for {
+		Debugf("Waiting for job")
 		// Get the list of current jobs
 		// Wait for next start event
 		vals, err := redis.Values(conn.Do("BLPOP", w.KeyPath("start"), "0"))
@@ -76,11 +77,13 @@ func (w *Worker) Work() error {
 		if _, err := redis.Scan(vals[1:], &id); err != nil {
 			return err
 		}
+		Debugf("Received instruction to start job %s", id)
 		// Acquire lock on the job
 		acquired, err := redis.Bool(conn.Do("SETNX", w.KeyPath(id, "worker"), "me"))
 		if err != nil {
 			return err
 		}
+		Debugf("Acquiring lock for job %s... -> %s", id, acquired)
 		// FIXME: set a dead man's switch with TTL & a periodic refresh
 		if acquired {
 			go w.startJob(id)
@@ -91,20 +94,22 @@ func (w *Worker) Work() error {
 
 // Connect opens a new redis connection using the worker's transport, and returns it.
 func (w *Worker) Connect() (redis.Conn, error) {
+	Debugf("Opening new connection")
 	conn, err := w.transport.Connect()
 	if err != nil {
 		return nil, err
 	}
+	Debugf("Connection successful")
 	return redis.NewConn(conn, 0, 0), nil
 }
 
 
 func (w *Worker) startJob(id string) error {
-	Debugf("Opening new connection for job %s", id)
 	conn, err := w.Connect()
 	if err != nil {
 		return err
 	}
+	Debugf("Connected")
 	defer conn.Close()
 	// Get job name
 	name, err := redis.String(conn.Do("GET", w.KeyPath(id)))
