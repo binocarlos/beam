@@ -178,7 +178,7 @@ while true {
 }
 
 # Handle a job start request
-name = GET /jobs/$id
+name = LINDEX /jobs $id
 args = LRAGE /jobs/$id/args 0 -1
 env = HGETALL /jobs/$id/env
 handler = lookupHandler($name)

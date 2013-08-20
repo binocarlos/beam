@@ -118,7 +118,7 @@ func (w *Worker) startJob(id string) error {
 	Debugf("Connected")
 	defer conn.Close()
 	// Get job name
-	name, err := redis.String(conn.Do("GET", w.KeyPath(id)))
+	name, err := redis.String(conn.Do("LINDEX", w.KeyPath(), id))
 	if err != nil {
 		return err
 	}
