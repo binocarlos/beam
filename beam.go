@@ -7,6 +7,8 @@ package beam
 
 import (
 	"io"
+	"fmt"
+	"github.com/garyburd/redigo/redis"
 )
 
 
@@ -14,38 +16,61 @@ type DB interface {
 
 }
 
-type Streamer interface {
-	// OpenRead returns a read-only interface to receive data on the stream <name>.
-	// If the stream hasn't been open for read access before, it is advertised as such to the peer.
-	OpenRead(name string) io.Reader
+type Streamer struct {
+	redis.Conn
+	InKey string
+	OutKey string
+}
 
-	// ReadFrom opens a read-only interface on the stream <name>, and copies data
-	// to that interface from <src> until EOF or error.
-	// The return value n is the number of bytes read.
-	// Any error encountered during the write is also returned.
-	ReadFrom(src io.Reader, name string) (int64, error)
+func NewStreamer(conn redis.Conn, in, out string) *Streamer {
+	return &Streamer{conn, in, out}
+}
 
-	// OpenWrite returns a write-only interface to send data on the stream <name>.
-	// If the stream hasn't been open for write access before, it is advertised as such to the peer.
-	OpenWrite(name string) io.Writer
 
-	// WriteTo opens a write-only interface on the stream <name>, and copies data
-	// from that interface to <dst> until there's no more data to write or when an error occurs.
-	// The return value n is the number of bytes written.
-	// Any error encountered during the write is also returned.
-	WriteTo(dst io.Writer, name string) (int64, error)
+// OpenRead returns a read-only interface to receive data on the stream <name>.
+// If the stream hasn't been open for read access before, it is advertised as such to the peer.
+func (s *Streamer) OpenRead(name string) io.Reader {
+	return nil
+}
 
-	// OpenReadWrite returns a read-write interface to send and receive on the stream <name>.
-	// If the stream hasn't been open for read or write access before, it is advertised as such to the peer.
-	OpenReadWrite(name string) io.ReadWriter
+// ReadFrom opens a read-only interface on the stream <name>, and copies data
+// to that interface from <src> until EOF or error.
+// The return value n is the number of bytes read.
+// Any error encountered during the write is also returned.
+func ReadFrom(src io.Reader, name string) (int64, error) {
+	return 0, nil
+}
 
-	// Close closes the stream <name>. All future reads will return io.EOF, and writes will return
-	// io.ErrClosedPipe
-	Close(name string)
+// OpenWrite returns a write-only interface to send data on the stream <name>.
+// If the stream hasn't been open for write access before, it is advertised as such to the peer.
+func OpenWrite(name string) io.Writer {
+	return nil
+}
 
-	// Shutdown waits until all streams with read access are closed and
-	// all WriteTo and ReadFrom operations are completed,
-	// then it stops accepting remote messages for its streams,
-	// then it returns.
-	Shutdown() error
+// WriteTo opens a write-only interface on the stream <name>, and copies data
+// from that interface to <dst> until there's no more data to write or when an error occurs.
+// The return value n is the number of bytes written.
+// Any error encountered during the write is also returned.
+func WriteTo(dst io.Writer, name string) (int64, error) {
+	return 0, fmt.Errorf("Not implemented")
+}
+
+// OpenReadWrite returns a read-write interface to send and receive on the stream <name>.
+// If the stream hasn't been open for read or write access before, it is advertised as such to the peer.
+func OpenReadWrite(name string) io.ReadWriter {
+	return nil
+}
+
+// Close closes the stream <name>. All future reads will return io.EOF, and writes will return
+// io.ErrClosedPipe
+func Close(name string) {
+
+}
+
+// Shutdown waits until all streams with read access are closed and
+// all WriteTo and ReadFrom operations are completed,
+// then it stops accepting remote messages for its streams,
+// then it returns.
+func Shutdown() error {
+	return fmt.Errorf("Not implemented")
 }
