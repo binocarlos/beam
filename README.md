@@ -153,13 +153,11 @@ while true {
 
 # Wait for the job to complete
 while true {
-	id = BLPOP /jobs/wait
-	if id == $id {
-		status = GET /jobs/$id/status
-		if status != "" {
-			print "Job $id exited with status $status"
-			break
-		}
+	BLPOP /jobs/$id/wait
+	status = GET /jobs/$id/status
+	if status != "" {
+		print "Job $id exited with status $status"
+		break
 	}
 }
 
