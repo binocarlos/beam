@@ -144,7 +144,21 @@ func (w *Worker) startJob(id string) error {
 
 	// Setup streams
 	streams := NewStreamer(conn, w.KeyPath(id, "in"), w.KeyPath(id, "out"))
-	return w.ServeJob(name, args, env, streams, w)
+	err = w.ServeJob(name, args, env, streams, w)
+	var status string
+	if err == nil {
+		status = ""
+	} else {
+		status = err.Error()
+	}
+	// Set the status and notify the client
+	if _, err := conn.Do("SET", w.KeyPath(id, "status"), status); err != nil {
+		return err
+	}
+	if _, err := conn.Do("RPUSH", w.KeyPath(id, "wait"), status); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (w *Worker) KeyPath(parts ...string) string {
