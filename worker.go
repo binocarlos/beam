@@ -1,6 +1,7 @@
 package beam
 
 import (
+	"os"
 	"net"
 	"fmt"
 	"path"
@@ -86,7 +87,12 @@ func (w *Worker) Work() error {
 		Debugf("Acquiring lock for job %s... -> %s", id, acquired)
 		// FIXME: set a dead man's switch with TTL & a periodic refresh
 		if acquired {
-			go w.startJob(id)
+			Debugf("Spawning goroutine for job %s", id)
+			go func(id string) {
+				if err := w.startJob(id); err != nil {
+					fmt.Fprintf(os.Stderr, "Error starting job %s: %s\n", id, err)
+				}
+			}(id)
 		}
 	}
 }
