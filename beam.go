@@ -2,10 +2,6 @@
 // with an emphasis on real-world patterns, simplicity and not reinventing the wheel.
 //
 // See http://github.com/dotcloud/beam.
-//
-// github.com/dotcloud/beam/common holds functions and data structures common to the
-// client and server implementations. It is typically not used directly by external
-// programs.
 
 package beam
 
