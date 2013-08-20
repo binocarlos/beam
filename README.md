@@ -128,7 +128,7 @@ RPUSH /jobs/$id/args ls -l /foobar
 HSET /jobs/$id/env DEBUG 1
 
 # Start the job
-SET /jobs/$id ""
+RPUSH /jobs/start $id
 
 # Send stdin on an input stream, then close it
 for line in readlines(stdin) {
@@ -153,7 +153,7 @@ while true {
 
 # Wait for the job to complete
 while true {
-	id = BLPOP /jobs/events
+	id = BLPOP /jobs/wait
 	if id == $id {
 		status = GET /jobs/$id
 		if status != "" {
