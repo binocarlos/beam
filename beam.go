@@ -37,13 +37,13 @@ func (s *Streamer) OpenRead(name string) io.Reader {
 // to that interface from <src> until EOF or error.
 // The return value n is the number of bytes read.
 // Any error encountered during the write is also returned.
-func ReadFrom(src io.Reader, name string) (int64, error) {
+func (s *Streamer) ReadFrom(src io.Reader, name string) (int64, error) {
 	return 0, nil
 }
 
 // OpenWrite returns a write-only interface to send data on the stream <name>.
 // If the stream hasn't been open for write access before, it is advertised as such to the peer.
-func OpenWrite(name string) io.Writer {
+func (s *Streamer) OpenWrite(name string) io.Writer {
 	return nil
 }
 
@@ -51,19 +51,19 @@ func OpenWrite(name string) io.Writer {
 // from that interface to <dst> until there's no more data to write or when an error occurs.
 // The return value n is the number of bytes written.
 // Any error encountered during the write is also returned.
-func WriteTo(dst io.Writer, name string) (int64, error) {
+func (s *Streamer) WriteTo(dst io.Writer, name string) (int64, error) {
 	return 0, fmt.Errorf("Not implemented")
 }
 
 // OpenReadWrite returns a read-write interface to send and receive on the stream <name>.
 // If the stream hasn't been open for read or write access before, it is advertised as such to the peer.
-func OpenReadWrite(name string) io.ReadWriter {
+func (s *Streamer) OpenReadWrite(name string) io.ReadWriter {
 	return nil
 }
 
 // Close closes the stream <name>. All future reads will return io.EOF, and writes will return
 // io.ErrClosedPipe
-func Close(name string) {
+func (s *Streamer) Close(name string) {
 
 }
 
@@ -71,6 +71,6 @@ func Close(name string) {
 // all WriteTo and ReadFrom operations are completed,
 // then it stops accepting remote messages for its streams,
 // then it returns.
-func Shutdown() error {
+func (s *Streamer) Shutdown() error {
 	return fmt.Errorf("Not implemented")
 }
