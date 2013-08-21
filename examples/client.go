@@ -3,30 +3,29 @@ package main
 import (
 	"fmt"
 	"github.com/dotcloud/beam"
-	"net"
+	"io"
+	"os"
 )
 
-type conn struct {
-}
-
-func (c *conn) Connect() (net.Conn, error) {
-	return net.Dial("tcp", ":6379")
-}
-
 func main() {
-	connector := &conn{}
-	client, err := beam.NewClient(connector)
+	client, err := beam.NewClient(&beam.NetTransport{"tcp", ":6379"})
 	if err != nil {
 		panic(err)
 	}
 	defer client.Close()
 
-	job := client.NewJob("exec", "ls", "-la")
+	job, err := client.NewJob("exec", "ls", "-la")
+	if err != nil {
+		panic(err)
+	}
 	job.Env = []string{"DEBUG=1"}
-	//job.Streams.WriteTo(os.Stdout, "stdout")
-	//job.Streams.WriteTo(os.Stderr, "stderr")
-	defer job.Streams.Close()
 
+	go func() {
+		r := job.Streams.OpenRead("stdout")
+		if _, err := io.Copy(os.Stdout, r); err != nil {
+			panic(err)
+		}
+	}()
 	if err := job.Start(); err != nil {
 		panic(err)
 	}

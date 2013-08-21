@@ -1,11 +1,11 @@
 package beam
 
 import (
-	"os"
-	"net"
 	"fmt"
-	"path"
 	"github.com/garyburd/redigo/redis"
+	"net"
+	"os"
+	"path"
 )
 
 type Connector interface {
@@ -14,16 +14,16 @@ type Connector interface {
 
 type Worker struct {
 	transport Connector
-	Prefix string	// The prefix for all redis keys
-	handlers map[string]JobHandler
+	Prefix    string // The prefix for all redis keys
+	handlers  map[string]JobHandler
 }
 
 // NewWorker initializes a new beam worker.
-func NewWorker(transport Connector, prefix string) *Worker{
+func NewWorker(transport Connector, prefix string) *Worker {
 	return &Worker{
 		transport: transport,
-		Prefix: prefix,
-		handlers: make(map[string]JobHandler),
+		Prefix:    prefix,
+		handlers:  make(map[string]JobHandler),
 	}
 }
 
@@ -56,7 +56,6 @@ func (w *Worker) ServeJob(name string, args []string, env map[string]string, str
 // This is similar to how multiple unix processes share access to the same filesystem.
 //
 type JobHandler func(name string, args []string, env map[string]string, streams *Streamer, db DB) error
-
 
 // Work runs an infinite loop, watching its database for new requests, starting job as requested,
 // moving stream data back and forth, and updating job status as it changes.
@@ -97,7 +96,6 @@ func (w *Worker) Work() error {
 	}
 }
 
-
 // Connect opens a new redis connection using the worker's transport, and returns it.
 func (w *Worker) Connect() (redis.Conn, error) {
 	Debugf("Opening new connection")
@@ -108,7 +106,6 @@ func (w *Worker) Connect() (redis.Conn, error) {
 	Debugf("Connection successful")
 	return redis.NewConn(conn, 0, 0), nil
 }
-
 
 func (w *Worker) startJob(id string) error {
 	conn, err := w.Connect()
@@ -144,7 +141,9 @@ func (w *Worker) startJob(id string) error {
 	}
 	env := make(map[string]string)
 	for len(envVals) > 0 {
-		var (k, v string)
+		var (
+			k, v string
+		)
 		envVals, err = redis.Scan(envVals, &k, &v)
 		if err != nil {
 			return err

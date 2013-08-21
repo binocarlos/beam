@@ -21,7 +21,7 @@ type Job struct {
 	Name       string
 	Args       []string
 	Env        []string
-	Streams    Streamer
+	Streams    *Streamer
 	ExitStatus int
 
 	client      *Client
@@ -42,13 +42,20 @@ func NewClient(connector Connector) (*Client, error) {
 	}, nil
 }
 
-func (c *Client) NewJob(name string, args ...string) *Job {
-	//FIXME: Should we get the id for the job here?
-	return &Job{
+func (c *Client) NewJob(name string, args ...string) (*Job, error) {
+	id, err := redis.Int(c.send("RPUSH", "/jobs", name))
+	if err != nil {
+		return nil, err
+	}
+
+	job := &Job{
+		Id:     id - 1,
 		Name:   name,
 		Args:   args,
 		client: c,
 	}
+	job.Streams = NewStreamer(c.pool.Get(), fmt.Sprintf("%s/streams/out", job.key()), fmt.Sprintf("%s/streams/in", job.key()))
+	return job, nil
 }
 
 func (c *Client) Close() error {
@@ -57,43 +64,38 @@ func (c *Client) Close() error {
 
 func (j *Job) Start() error {
 	client := j.client
-	id, err := redis.Int(client.send("RPUSH", "/jobs", j.Name))
-	if err != nil {
-		return err
-	}
-
-	j.Id = id - 1
 	// Send job arguments
 	args := append([]interface{}{fmt.Sprintf("%s/args", j.key())}, asInterfaceSlice(j.Args)...)
-	_, err = client.send("RPUSH", args...)
-	if err != nil {
+	if _, err := client.send("RPUSH", args...); err != nil {
 		return err
 	}
 
 	// Send environment vars
 	env := append([]interface{}{fmt.Sprintf("%s/env", j.key())}, asInterfaceSlice(splitEnv(j.Env))...)
-	_, err = client.send("HMSET", env...)
-	if err != nil {
+	if _, err := client.send("HMSET", env...); err != nil {
 		return err
 	}
 
 	// Send start job
-	_, err = client.send("RPUSH", fmt.Sprintf("/jobs/start"), j.Id)
-	if err != nil {
+	if _, err := client.send("RPUSH", fmt.Sprintf("/jobs/start"), j.Id); err != nil {
 		return err
 	}
 
 	j.exitFailure, j.exitSuccess = make(chan bool), make(chan bool)
 	// Start waiting for exit
 	go func() {
-		reply, err := client.send("BLPOP", fmt.Sprintf("%s/wait", j.key()), DEFAULTTIMEOUT)
+		Debugf("Waiting for job: %d", j.Id)
+
+		reply, err := redis.MultiBulk(client.send("BLPOP", fmt.Sprintf("%s/wait", j.key()), DEFAULTTIMEOUT))
 		if err != nil {
 			j.exitError = err
 			j.exitFailure <- true
 			return
 		}
-		buffer := bytes.NewBuffer(reply.([]interface{})[1].([]byte))
 
+		Debugf("Job ending: %d", j.Id)
+
+		buffer := bytes.NewBuffer(reply[1].([]byte))
 		code, err := strconv.Atoi(buffer.String())
 		if err != nil {
 			j.exitError = err
@@ -127,5 +129,6 @@ func (j *Job) key() string {
 func (c *Client) send(name string, args ...interface{}) (interface{}, error) {
 	conn := c.pool.Get()
 	defer conn.Close()
+
 	return conn.Do(name, args...)
 }
