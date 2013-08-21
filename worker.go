@@ -13,17 +13,17 @@ type Connector interface {
 }
 
 type Worker struct {
-	transport Connector
-	Prefix    string // The prefix for all redis keys
-	handlers  map[string]JobHandler
+	pool     *redis.Pool
+	Prefix   string // The prefix for all redis keys
+	handlers map[string]JobHandler
 }
 
 // NewWorker initializes a new beam worker.
 func NewWorker(transport Connector, prefix string) *Worker {
 	return &Worker{
-		transport: transport,
-		Prefix:    prefix,
-		handlers:  make(map[string]JobHandler),
+		pool:     newConnectionPool(transport, 5),
+		Prefix:   prefix,
+		handlers: make(map[string]JobHandler),
 	}
 }
 
@@ -60,10 +60,7 @@ type JobHandler func(name string, args []string, env map[string]string, streams 
 // Work runs an infinite loop, watching its database for new requests, starting job as requested,
 // moving stream data back and forth, and updating job status as it changes.
 func (w *Worker) Work() error {
-	conn, err := w.Connect()
-	if err != nil {
-		return err
-	}
+	conn := w.pool.Get()
 	defer conn.Close()
 	for {
 		Debugf("Waiting for job")
@@ -96,22 +93,9 @@ func (w *Worker) Work() error {
 	}
 }
 
-// Connect opens a new redis connection using the worker's transport, and returns it.
-func (w *Worker) Connect() (redis.Conn, error) {
-	Debugf("Opening new connection")
-	conn, err := w.transport.Connect()
-	if err != nil {
-		return nil, err
-	}
-	Debugf("Connection successful")
-	return redis.NewConn(conn, 0, 0), nil
-}
-
 func (w *Worker) startJob(id string) error {
-	conn, err := w.Connect()
-	if err != nil {
-		return err
-	}
+	conn := w.pool.Get()
+
 	Debugf("Connected")
 	defer conn.Close()
 	// Get job name
@@ -153,8 +137,11 @@ func (w *Worker) startJob(id string) error {
 	Debugf("Job env = %v", env)
 
 	// Setup streams
-	streams := NewStreamer(conn, w.KeyPath(id, "in"), w.KeyPath(id, "out"))
+	streams := NewStreamer(w.pool, w.KeyPath(id, "streams", "in"), w.KeyPath(id, "streams", "out"))
 	err = w.ServeJob(name, args, env, streams, w)
+
+	Debugf("ServeJob complete")
+
 	var status string
 	if err == nil {
 		status = ""
@@ -165,6 +152,7 @@ func (w *Worker) startJob(id string) error {
 	if _, err := conn.Do("SET", w.KeyPath(id, "status"), status); err != nil {
 		return err
 	}
+	Debugf("Sending job completed")
 	if _, err := conn.Do("RPUSH", w.KeyPath(id, "wait"), status); err != nil {
 		return err
 	}

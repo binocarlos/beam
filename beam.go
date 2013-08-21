@@ -27,21 +27,23 @@ type streamingContext struct {
 }
 
 type Streamer struct {
-	conn   redis.Conn
+	pool   *redis.Pool
 	InKey  string
 	OutKey string
 
-	readers  map[string]chan []byte
-	handlers map[string]chan []byte
+	readers   map[string]chan []byte
+	handlers  map[string]chan []byte
+	writeChan chan []byte
 }
 
-func NewStreamer(conn redis.Conn, in, out string) *Streamer {
+func NewStreamer(pool *redis.Pool, in, out string) *Streamer {
 	streamer := &Streamer{
-		conn:     conn,
-		InKey:    in,
-		OutKey:   out,
-		readers:  make(map[string]chan []byte),
-		handlers: make(map[string]chan []byte),
+		pool:      pool,
+		InKey:     in,
+		OutKey:    out,
+		readers:   make(map[string]chan []byte),
+		handlers:  make(map[string]chan []byte),
+		writeChan: make(chan []byte, 100),
 	}
 	e := streamer.start()
 	go func() {
@@ -51,18 +53,6 @@ func NewStreamer(conn redis.Conn, in, out string) *Streamer {
 	}()
 
 	return streamer
-}
-
-// OpenRead returns a read-only interface to receive data on the stream <name>.
-// If the stream hasn't been open for read access before, it is advertised as such to the peer.
-func (s *Streamer) OpenRead(name string) io.Reader {
-	c := make(chan []byte, 100)
-	s.handlers[name] = c
-	return newRedisReader(c, name)
-}
-
-func (s *Streamer) OpenWrite(name string) io.Writer {
-	return nil
 }
 
 func newListener(s *Streamer, name string, c chan []byte) {
@@ -79,15 +69,18 @@ func newListener(s *Streamer, name string, c chan []byte) {
 func (s *Streamer) start() chan error {
 	e := make(chan error)
 	go func() {
+		conn := s.pool.Get()
 		for {
-			reply, err := redis.MultiBulk(s.conn.Do("BLPOP", s.OutKey, DEFAULTTIMEOUT))
+			Debugf("Reading from: %s", s.OutKey)
+			reply, err := redis.MultiBulk(conn.Do("BLPOP", s.OutKey, DEFAULTTIMEOUT))
 			if err != nil {
 				e <- err
 				continue
 			}
 			b := reply[1].([]byte)
 
-			Debugf("Received message %s", string(b))
+			Debugf("Received message on: %s", s.OutKey)
+
 			parts := bytes.SplitN(b, []byte(":"), 2)
 			if len(parts) < 2 {
 				e <- ErrInvalidResposeType
@@ -110,18 +103,32 @@ func (s *Streamer) start() chan error {
 			}
 			c <- msg
 		}
+		conn.Close()
 	}()
 
-	//	go func() {
-	//		for msg := range s.readChan {
-	//			_, err := s.conn.Do("RPUSH", s.InKey, msg)
-	//			if err != nil {
-	//				e <- err
-	//				continue
-	//			}
-	//		}
-	//	}()
+	go func() {
+		Debugf("Writing to: %s", s.InKey)
+		conn := s.pool.Get()
+		defer conn.Close()
+		for msg := range s.writeChan {
+			Debugf("Writing message on: %s", s.InKey)
+
+			_, err := conn.Do("RPUSH", s.InKey, msg)
+			if err != nil {
+				e <- err
+				continue
+			}
+		}
+	}()
 	return e
+}
+
+// OpenRead returns a read-only interface to receive data on the stream <name>.
+// If the stream hasn't been open for read access before, it is advertised as such to the peer.
+func (s *Streamer) OpenRead(name string) io.ReadCloser {
+	c := make(chan []byte, 100)
+	s.handlers[name] = c
+	return newRedisReader(c, name)
 }
 
 // ReadFrom opens a read-only interface on the stream <name>, and copies data
@@ -129,13 +136,13 @@ func (s *Streamer) start() chan error {
 // The return value n is the number of bytes read.
 // Any error encountered during the write is also returned.
 func (s *Streamer) ReadFrom(src io.Reader, name string) (int64, error) {
-	return 0, nil
+	return io.Copy(s.OpenWrite(name), src)
 }
 
 // OpenWrite returns a write-only interface to send data on the stream <name>.
 // If the stream hasn't been open for write access before, it is advertised as such to the peer.
-func (s *Streamer) OpenWrite(name string) io.Writer {
-	return nil
+func (s *Streamer) OpenWrite(name string) io.WriteCloser {
+	return newRedisWriter(s.writeChan, name)
 }
 
 // WriteTo opens a write-only interface on the stream <name>, and copies data
@@ -143,7 +150,7 @@ func (s *Streamer) OpenWrite(name string) io.Writer {
 // The return value n is the number of bytes written.
 // Any error encountered during the write is also returned.
 func (s *Streamer) WriteTo(dst io.Writer, name string) (int64, error) {
-	return 0, fmt.Errorf("Not implemented")
+	return io.Copy(dst, s.OpenRead(name))
 }
 
 // OpenReadWrite returns a read-write interface to send and receive on the stream <name>.
@@ -155,7 +162,6 @@ func (s *Streamer) OpenReadWrite(name string) io.ReadWriter {
 // Close closes the stream <name>. All future reads will return io.EOF, and writes will return
 // io.ErrClosedPipe
 func (s *Streamer) Close(name string) {
-
 }
 
 // Shutdown waits until all streams with read access are closed and

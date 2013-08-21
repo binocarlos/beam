@@ -2,6 +2,7 @@ package beam
 
 import (
 	"fmt"
+	"github.com/garyburd/redigo/redis"
 	"os"
 	"runtime"
 	"strings"
@@ -45,4 +46,14 @@ func asInterfaceSlice(value []string) []interface{} {
 		out[i] = v
 	}
 	return out
+}
+
+func newConnectionPool(connector Connector, size int) *redis.Pool {
+	return redis.NewPool(func() (redis.Conn, error) {
+		conn, err := connector.Connect()
+		if err != nil {
+			return nil, err
+		}
+		return redis.NewConn(conn, 0, 0), nil
+	}, size)
 }

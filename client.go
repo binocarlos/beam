@@ -8,7 +8,6 @@ import (
 )
 
 const (
-	DEFALTPOOLSIZE = 5
 	DEFAULTTIMEOUT = 0 // Wait forever
 )
 
@@ -31,15 +30,7 @@ type Job struct {
 }
 
 func NewClient(connector Connector) (*Client, error) {
-	return &Client{
-		pool: redis.NewPool(func() (redis.Conn, error) {
-			conn, err := connector.Connect()
-			if err != nil {
-				return nil, err
-			}
-			return redis.NewConn(conn, 0, 0), nil
-		}, DEFALTPOOLSIZE),
-	}, nil
+	return &Client{pool: newConnectionPool(connector, 5)}, nil
 }
 
 func (c *Client) NewJob(name string, args ...string) (*Job, error) {
@@ -54,7 +45,7 @@ func (c *Client) NewJob(name string, args ...string) (*Job, error) {
 		Args:   args,
 		client: c,
 	}
-	job.Streams = NewStreamer(c.pool.Get(), fmt.Sprintf("%s/streams/out", job.key()), fmt.Sprintf("%s/streams/in", job.key()))
+	job.Streams = NewStreamer(c.pool, fmt.Sprintf("%s/streams/out", job.key()), fmt.Sprintf("%s/streams/in", job.key()))
 	return job, nil
 }
 
@@ -63,6 +54,8 @@ func (c *Client) Close() error {
 }
 
 func (j *Job) Start() error {
+	Debugf("Starting job: %d", j.Id)
+
 	client := j.client
 	// Send job arguments
 	args := append([]interface{}{fmt.Sprintf("%s/args", j.key())}, asInterfaceSlice(j.Args)...)
@@ -95,7 +88,14 @@ func (j *Job) Start() error {
 
 		Debugf("Job ending: %d", j.Id)
 
-		buffer := bytes.NewBuffer(reply[1].([]byte))
+		status := reply[1].([]byte)
+		// Status will be empty for success
+		if len(status) == 0 {
+			j.exitSuccess <- true
+			return
+		}
+
+		buffer := bytes.NewBuffer(status)
 		code, err := strconv.Atoi(buffer.String())
 		if err != nil {
 			j.exitError = err
@@ -103,7 +103,7 @@ func (j *Job) Start() error {
 			return
 		}
 		j.ExitStatus = code
-		j.exitSuccess <- true
+		j.exitFailure <- true
 	}()
 	return nil
 }
