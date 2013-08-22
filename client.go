@@ -30,7 +30,7 @@ type Job struct {
 }
 
 func NewClient(connector Connector) (*Client, error) {
-	return &Client{pool: newConnectionPool(connector, 5)}, nil
+	return &Client{pool: newConnectionPool(connector, 10)}, nil
 }
 
 func (c *Client) NewJob(name string, args ...string) (*Job, error) {
@@ -69,24 +69,18 @@ func (j *Job) Start() error {
 		return err
 	}
 
-	// Send start job
-	if _, err := client.send("RPUSH", fmt.Sprintf("/jobs/start"), j.Id); err != nil {
-		return err
-	}
-
 	j.exitFailure, j.exitSuccess = make(chan bool), make(chan bool)
 	// Start waiting for exit
 	go func() {
 		Debugf("Waiting for job: %d", j.Id)
 
 		reply, err := redis.MultiBulk(client.send("BLPOP", fmt.Sprintf("%s/wait", j.key()), DEFAULTTIMEOUT))
+		Debugf("Job complete: %d", j.Id)
 		if err != nil {
 			j.exitError = err
 			j.exitFailure <- true
 			return
 		}
-
-		Debugf("Job ending: %d", j.Id)
 
 		status := reply[1].([]byte)
 		// Status will be empty for success
@@ -105,6 +99,12 @@ func (j *Job) Start() error {
 		j.ExitStatus = code
 		j.exitFailure <- true
 	}()
+
+	// Send start job
+	if _, err := client.send("RPUSH", fmt.Sprintf("/jobs/start"), j.Id); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -112,11 +112,16 @@ func (j *Job) Start() error {
 func (j *Job) Wait() error {
 	defer close(j.exitFailure)
 	defer close(j.exitSuccess)
+	defer Debugf("Job wait complete")
 
+	Debugf("Waiting for job to complete")
 	switch {
 	case <-j.exitSuccess:
-		return nil
+		Debugf("Shutting down job streams - success")
+		return j.Streams.Shutdown()
 	case <-j.exitFailure:
+		Debugf("Shutting down job streams - failue")
+		j.Streams.Shutdown()
 		return j.exitError
 	}
 	return nil

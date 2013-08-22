@@ -8,9 +8,9 @@ package beam
 import (
 	"bytes"
 	"errors"
-	"fmt"
 	"github.com/garyburd/redigo/redis"
 	"io"
+	"sync"
 )
 
 var (
@@ -20,20 +20,20 @@ var (
 type DB interface {
 }
 
-type streamingContext struct {
-	name    string
-	message []byte
-	err     error
-}
-
 type Streamer struct {
-	pool   *redis.Pool
-	InKey  string
-	OutKey string
+	pool          *redis.Pool
+	InKey         string
+	OutKey        string
+	isReadsClosed bool
+	group         sync.WaitGroup
+	mutex         sync.Mutex
 
-	readers   map[string]chan []byte
-	handlers  map[string]chan []byte
-	writeChan chan []byte
+	consumers     map[string]chan []byte
+	handlers      map[string]chan []byte
+	producerCount int
+	producer      chan []byte
+	errs          chan error
+	waits         []chan bool
 }
 
 func NewStreamer(pool *redis.Pool, in, out string) *Streamer {
@@ -41,94 +41,133 @@ func NewStreamer(pool *redis.Pool, in, out string) *Streamer {
 		pool:      pool,
 		InKey:     in,
 		OutKey:    out,
-		readers:   make(map[string]chan []byte),
+		consumers: make(map[string]chan []byte),
 		handlers:  make(map[string]chan []byte),
-		writeChan: make(chan []byte, 100),
+		producer:  make(chan []byte, 1024),
+		mutex:     sync.Mutex{},
+		waits:     make([]chan bool, 0),
 	}
-	e := streamer.start()
+	streamer.start()
 	go func() {
-		for err := range e {
+		for err := range streamer.errs {
 			Debugf("Error: %s", err)
 		}
 	}()
-
 	return streamer
 }
 
 func newListener(s *Streamer, name string, c chan []byte) {
+	Debugf("Starting listener for: %s", name)
+	s.group.Add(1)
+	defer s.group.Done()
+
 	for msg := range c {
-		if handler, ok := s.handlers[name]; ok {
-			handler <- msg
+		for {
+			if reader, ok := s.handlers[name]; ok {
+				reader <- msg
+				break
+			} else if s.isReadsClosed {
+				Debugf("Discarding message for: %s", name)
+				break
+			}
 		}
 	}
-	if handler, ok := s.handlers[name]; ok {
-		close(handler)
+	if reader, ok := s.handlers[name]; ok {
+		close(reader)
 	}
 }
 
-func (s *Streamer) start() chan error {
-	e := make(chan error)
+func (s *Streamer) start() {
+	s.errs = make(chan error, 1024)
 	go func() {
+		s.group.Add(1)
+		defer s.group.Done()
+
 		conn := s.pool.Get()
+		defer conn.Close()
+
+		Debugf("Reading from: %s", s.OutKey)
 		for {
-			Debugf("Reading from: %s", s.OutKey)
 			reply, err := redis.MultiBulk(conn.Do("BLPOP", s.OutKey, DEFAULTTIMEOUT))
 			if err != nil {
-				e <- err
+				s.errs <- err
 				continue
 			}
 			b := reply[1].([]byte)
 
-			Debugf("Received message on: %s", s.OutKey)
-
 			parts := bytes.SplitN(b, []byte(":"), 2)
 			if len(parts) < 2 {
-				e <- ErrInvalidResposeType
+				s.errs <- ErrInvalidResposeType
 				continue
 			}
 			name := string(parts[0])
 			msg := parts[1]
 			if len(msg) == 0 {
-				for _, c := range s.readers {
+				s.mutex.Lock()
+				if c, ok := s.consumers[name]; ok {
 					close(c)
+					delete(s.consumers, name)
 				}
-				break
+				if len(s.consumers) == 0 {
+					s.mutex.Unlock()
+					break
+				}
+				s.mutex.Unlock()
+				continue
 			}
-			c, ok := s.readers[name]
+			c, ok := s.consumers[name]
 			if !ok {
-				c = make(chan []byte, 100)
-				s.readers[name] = c
+				s.mutex.Lock()
+				c = make(chan []byte, 1024)
+				s.consumers[name] = c
 
 				go newListener(s, name, c)
+				s.mutex.Unlock()
 			}
 			c <- msg
 		}
-		conn.Close()
+		for _, c := range s.consumers {
+			close(c)
+		}
+		s.isReadsClosed = true
+		s.group.Done()
 	}()
 
 	go func() {
-		Debugf("Writing to: %s", s.InKey)
+		s.group.Add(1)
+		defer s.group.Done()
+
 		conn := s.pool.Get()
 		defer conn.Close()
-		for msg := range s.writeChan {
-			Debugf("Writing message on: %s", s.InKey)
 
-			_, err := conn.Do("RPUSH", s.InKey, msg)
-			if err != nil {
-				e <- err
-				continue
+		Debugf("Writing to: %s", s.InKey)
+		for msg := range s.producer {
+			if _, err := conn.Do("RPUSH", s.InKey, msg); err != nil {
+				s.errs <- err
 			}
 		}
 	}()
-	return e
 }
 
 // OpenRead returns a read-only interface to receive data on the stream <name>.
 // If the stream hasn't been open for read access before, it is advertised as such to the peer.
 func (s *Streamer) OpenRead(name string) io.ReadCloser {
-	c := make(chan []byte, 100)
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	if _, ok := s.consumers[name]; !ok {
+		cs := make(chan []byte, 1024)
+		s.consumers[name] = cs
+		go newListener(s, name, cs)
+
+	}
+	c := make(chan []byte, 1024)
 	s.handlers[name] = c
-	return newRedisReader(c, name)
+	channel, wait := NewChannel(c, false)
+	if wait != nil {
+		s.waits = append(s.waits, wait)
+	}
+	return channel
 }
 
 // ReadFrom opens a read-only interface on the stream <name>, and copies data
@@ -136,13 +175,38 @@ func (s *Streamer) OpenRead(name string) io.ReadCloser {
 // The return value n is the number of bytes read.
 // Any error encountered during the write is also returned.
 func (s *Streamer) ReadFrom(src io.Reader, name string) (int64, error) {
-	return io.Copy(s.OpenWrite(name), src)
+	return 0, nil
 }
 
 // OpenWrite returns a write-only interface to send data on the stream <name>.
 // If the stream hasn't been open for write access before, it is advertised as such to the peer.
 func (s *Streamer) OpenWrite(name string) io.WriteCloser {
-	return newRedisWriter(s.writeChan, name)
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	s.producerCount++
+	c := make(chan []byte)
+	go func() {
+		s.group.Add(1)
+		defer s.group.Done()
+
+		for msg := range c {
+			s.producer <- formatMessage(name, msg)
+		}
+		s.producerCount--
+		if s.producerCount == 0 {
+			close(s.producer)
+		}
+	}()
+	channel, wait := NewChannel(c, true)
+	if wait != nil {
+		s.waits = append(s.waits, wait)
+	}
+	return channel
+}
+
+func formatMessage(name string, msg []byte) []byte {
+	return append([]byte(name+":"), msg...)
 }
 
 // WriteTo opens a write-only interface on the stream <name>, and copies data
@@ -150,7 +214,7 @@ func (s *Streamer) OpenWrite(name string) io.WriteCloser {
 // The return value n is the number of bytes written.
 // Any error encountered during the write is also returned.
 func (s *Streamer) WriteTo(dst io.Writer, name string) (int64, error) {
-	return io.Copy(dst, s.OpenRead(name))
+	return 0, nil
 }
 
 // OpenReadWrite returns a read-write interface to send and receive on the stream <name>.
@@ -169,5 +233,11 @@ func (s *Streamer) Close(name string) {
 // then it stops accepting remote messages for its streams,
 // then it returns.
 func (s *Streamer) Shutdown() error {
-	return fmt.Errorf("Not implemented")
+	close(s.errs)
+	s.group.Wait()
+	// Wait for all chan streams to end
+	for _, w := range s.waits {
+		<-w
+	}
+	return nil
 }

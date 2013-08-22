@@ -21,7 +21,7 @@ type Worker struct {
 // NewWorker initializes a new beam worker.
 func NewWorker(transport Connector, prefix string) *Worker {
 	return &Worker{
-		pool:     newConnectionPool(transport, 5),
+		pool:     newConnectionPool(transport, 10),
 		Prefix:   prefix,
 		handlers: make(map[string]JobHandler),
 	}
