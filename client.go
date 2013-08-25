@@ -58,15 +58,19 @@ func (j *Job) Start() error {
 
 	client := j.client
 	// Send job arguments
-	args := append([]interface{}{fmt.Sprintf("%s/args", j.key())}, asInterfaceSlice(j.Args)...)
-	if _, err := client.send("RPUSH", args...); err != nil {
-		return err
+	if len(j.Args) > 0 {
+		args := append([]interface{}{fmt.Sprintf("%s/args", j.key())}, asInterfaceSlice(j.Args)...)
+		if _, err := client.send("RPUSH", args...); err != nil {
+			return err
+		}
 	}
 
 	// Send environment vars
-	env := append([]interface{}{fmt.Sprintf("%s/env", j.key())}, asInterfaceSlice(splitEnv(j.Env))...)
-	if _, err := client.send("HMSET", env...); err != nil {
-		return err
+	if len(j.Env) > 0 {
+		env := append([]interface{}{fmt.Sprintf("%s/env", j.key())}, asInterfaceSlice(splitEnv(j.Env))...)
+		if _, err := client.send("HMSET", env...); err != nil {
+			return err
+		}
 	}
 
 	j.exitFailure, j.exitSuccess = make(chan bool), make(chan bool)
