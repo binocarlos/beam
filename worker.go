@@ -36,12 +36,17 @@ func (w *Worker) RegisterJob(name string, h JobHandler) {
 // ServeJob is the server's default job handler. It is called every time a new job is created.
 // It looks up a handler registered at <name>, and calls it with the same arguments. If no handler
 // is registered, it returns an error.
-func (w *Worker) ServeJob(name string, args []string, env map[string]string, streams *Streamer, db DB) error {
+func (w *Worker) ServeJob(name string, args []string, env map[string]string, streams *Streamer, db DB) (err error) {
+	defer func() {
+		Debugf("Job returned: %s(%s) = %s", name, args, err)
+	}()
 	h, exists := w.handlers[name]
 	if !exists {
 		return fmt.Errorf("No such job: %s", name)
 	}
-	return h(name, args, env, streams, db)
+	Debugf("Calling job: %s(%s)", name, args)
+	err = h(name, args, env, streams, db)
+	return
 }
 
 // A JobHandler is a function which can be invoked as a job by beam clients.
@@ -93,6 +98,7 @@ func (w *Worker) Work() error {
 	}
 }
 
+// startJob is called in its own goroutine for each job acquired by the worker.
 func (w *Worker) startJob(id string) error {
 	conn := w.pool.Get()
 
