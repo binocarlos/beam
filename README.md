@@ -52,7 +52,7 @@ TCP, Unix domain sockets and TLS sessions are all good transports.
 ## Wire protocol
 
 The beam protocol is a *strict subset* of the Redis wire protocol, with additional semantics. You could say it's the "ReST of Redis".
-In other words, all Beam commands are map to a sequence of 1 or more valid Redis commands, but not all Redis commands are valid Beam commands.
+In other words, all Beam commands map to a sequence of 1 or more valid Redis commands, but not all Redis commands are valid Beam commands.
 
 For a reference of the Redis wire protocol, see http://redis.io/topics/protocol.
 
