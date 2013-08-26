@@ -1,10 +1,9 @@
 package beam
 
 import (
-	"bytes"
 	"fmt"
 	"github.com/garyburd/redigo/redis"
-	"strconv"
+	"path"
 )
 
 const (
@@ -74,35 +73,6 @@ func (j *Job) Start() error {
 	}
 
 	j.exitFailure, j.exitSuccess = make(chan bool), make(chan bool)
-	// Start waiting for exit
-	go func() {
-		Debugf("Waiting for job: %d", j.Id)
-
-		reply, err := redis.MultiBulk(client.send("BLPOP", fmt.Sprintf("%s/wait", j.key()), DEFAULTTIMEOUT))
-		Debugf("Job complete: %d", j.Id)
-		if err != nil {
-			j.exitError = err
-			j.exitFailure <- true
-			return
-		}
-
-		status := reply[1].([]byte)
-		// Status will be empty for success
-		if len(status) == 0 {
-			j.exitSuccess <- true
-			return
-		}
-
-		buffer := bytes.NewBuffer(status)
-		code, err := strconv.Atoi(buffer.String())
-		if err != nil {
-			j.exitError = err
-			j.exitFailure <- true
-			return
-		}
-		j.ExitStatus = code
-		j.exitFailure <- true
-	}()
 
 	// Send start job
 	if _, err := client.send("RPUSH", fmt.Sprintf("/jobs/start"), j.Id); err != nil {
@@ -112,23 +82,46 @@ func (j *Job) Start() error {
 	return nil
 }
 
-// Wait for the job to succeed or fail
-func (j *Job) Wait() error {
-	defer close(j.exitFailure)
-	defer close(j.exitSuccess)
-	defer Debugf("Job wait complete")
+func (j *Job) PopMessage(conn redis.Conn) ([]byte, error) {
+	var reply []interface{}
+	reply, err := redis.MultiBulk(conn.Do("BLPOP", path.Join(j.key(), "out"), DEFAULTTIMEOUT))
+	if err != nil {
+		return []byte{}, err
+	}
+	return reply[1].([]byte), nil
+}
 
-	Debugf("Waiting for job to complete")
-	switch {
-	case <-j.exitSuccess:
-		Debugf("Shutting down job streams - success")
-		return j.Streams.Shutdown()
-	case <-j.exitFailure:
-		Debugf("Shutting down job streams - failue")
-		j.Streams.Shutdown()
-		return j.exitError
+func (j *Job) Watch() error {
+	conn := j.client.pool.Get()
+	defer conn.Close()
+	for {
+		msg, err := j.PopMessage(conn)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("[%s] %s", j.Id, msg)
 	}
 	return nil
+}
+
+
+// Wait for the job to succeed or fail
+func (j *Job) Wait() error {
+	conn := j.client.pool.Get()
+	// Check if the job is already finished
+	status, err := conn.Do("GET", path.Join(j.key(), "status"))
+	if err != nil {
+		return fmt.Errorf("Error getting job status: %s", err)
+	}
+	if status != nil {
+		Debugf("Status of job is already set. Returning.")
+		// FIXME: always returning success for now
+		return nil
+	}
+	Debugf("Job has not yet exited. Waiting.")
+	reply, err := redis.MultiBulk(conn.Do("BLPOP", fmt.Sprintf("%s/wait", j.key()), DEFAULTTIMEOUT))
+	Debugf("Job complete: %d (%s", j.Id, reply)
+	return err
 }
 
 func (j *Job) key() string {
