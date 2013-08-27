@@ -3,7 +3,6 @@ package beam
 import (
 	"fmt"
 	"github.com/garyburd/redigo/redis"
-	"io"
 	"net"
 	"os"
 	"path"
@@ -11,12 +10,6 @@ import (
 
 type Connector interface {
 	Connect() (net.Conn, error)
-}
-
-type Streamer interface {
-	OpenRead(name string) (io.ReadCloser, error)
-	OpenWrite(name string) (io.WriteCloser, error)
-	Close() error
 }
 
 type Worker struct {

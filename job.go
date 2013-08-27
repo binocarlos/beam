@@ -85,9 +85,16 @@ func (j *Job) watch() error {
 			return err
 		}
 
-		// Check if job has ended
+		// Check if job has ended and close all streams
 		if msg.Id == "x" {
 			if err := j.streamer.Close(); err != nil {
+				return err
+			}
+		}
+
+		// Check for closing specific stream
+		if msg.Id[0] == '-' {
+			if err := j.streamer.closeStream(msg.Id[1:]); err != nil {
 				return err
 			}
 		}

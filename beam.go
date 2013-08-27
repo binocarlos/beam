@@ -13,6 +13,12 @@ import (
 type DB interface {
 }
 
+type Streamer interface {
+	OpenRead(name string) (io.ReadCloser, error)
+	OpenWrite(name string) (io.WriteCloser, error)
+	Close() error
+}
+
 type streamer struct {
 	WriteKey string
 	ReadKey  string
@@ -69,4 +75,15 @@ func (s *streamer) writeMessage(msg *Message) {
 	if stream, exists := s.streams[msg.Id]; exists {
 		stream.stream <- msg.Body
 	}
+}
+
+func (s *streamer) closeStream(name string) error {
+	if stream, exists := s.streams[name]; exists {
+		err := stream.Close()
+		if err == nil {
+			delete(s.streams, name)
+		}
+		return err
+	}
+	return nil
 }
