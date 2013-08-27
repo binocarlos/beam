@@ -10,7 +10,7 @@ import (
 
 func worker() {
 	worker := beam.NewWorker(&beam.NetTransport{"tcp", ":6379"}, "/jobs")
-	worker.RegisterJob("exec", func(name string, args []string, env map[string]string, streams *beam.Streamer, db beam.DB) error {
+	worker.RegisterJob("exec", func(name string, args []string, env map[string]string, streams beam.Streamer, db beam.DB) error {
 		var (
 			cmdName string
 			cmdArgs []string
@@ -25,14 +25,19 @@ func worker() {
 		}
 		p := exec.Command(cmdName, cmdArgs...)
 
-		out := streams.OpenWrite("stdout")
-		err := streams.OpenWrite("stderr")
+		out, err := streams.OpenWrite("stdout")
+		if err != nil {
+			return err
+		}
+		errStr, err := streams.OpenWrite("stderr")
+		if err != nil {
+			return err
+		}
 		defer out.Close()
-		defer err.Close()
+		defer errStr.Close()
 
 		p.Stdout = out
-		p.Stderr = err
-		streams.Shutdown()
+		p.Stderr = errStr
 
 		return p.Run()
 	})
@@ -46,12 +51,20 @@ func createJob(client *beam.Client) *beam.Job {
 	}
 	job.Env = []string{"DEBUG=1"}
 	go func() {
-		if _, err := io.Copy(os.Stdout, job.Streams.OpenRead("stdout")); err != nil {
+		stdout, err := job.OpenRead("stdout")
+		if err != nil {
+			panic(err)
+		}
+		if _, err := io.Copy(os.Stdout, stdout); err != nil {
 			panic(err)
 		}
 	}()
 	go func() {
-		if _, err := io.Copy(os.Stderr, job.Streams.OpenRead("stderr")); err != nil {
+		stderr, err := job.OpenRead("stderr")
+		if err != nil {
+			panic(err)
+		}
+		if _, err := io.Copy(os.Stderr, stderr); err != nil {
 			panic(err)
 		}
 	}()

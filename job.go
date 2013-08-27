@@ -20,14 +20,7 @@ type Job struct {
 	Args       []string
 	Env        []string
 	ExitStatus int
-
-	pool    *redis.Pool
-	streams map[string]*redisStream
-}
-
-type Message struct {
-	Id   string
-	Body []byte
+	streamer   *streamer
 }
 
 // Create and register new job
@@ -44,11 +37,10 @@ func NewJob(pool *redis.Pool, jobName string, args ...string) (*Job, error) {
 	id = id - 1
 
 	return &Job{
-		Id:      id,
-		Name:    jobName,
-		Args:    args,
-		pool:    pool,
-		streams: make(map[string]*redisStream),
+		Id:       id,
+		Name:     jobName,
+		Args:     args,
+		streamer: NewStreamer(pool, fmt.Sprintf("/jobs/%d/streams/out", id), fmt.Sprintf("/jobs/%d/streams/in", id)).(*streamer),
 	}, nil
 }
 
@@ -62,38 +54,30 @@ func (j *Job) Start() error {
 	if err := j.writeEnv(); err != nil {
 		return err
 	}
-
 	// Start the job event loop
 	go func() {
 		if err := j.watch(); err != nil {
 			panic(err)
 		}
 	}()
+
+	// Signal job is ready for processing
+	if _, err := send(j.streamer.pool, "RPUSH", "/jobs/start", j.Id); err != nil {
+		return err
+	}
 	return nil
 }
 
 func (j *Job) OpenRead(name string) (io.ReadCloser, error) {
-	if _, exists := j.streams[name]; exists {
-		return nil, ErrStreamAlreadyExists
-	}
-
-	s := NewReadStream(j.keyParts("streams", "out"))
-	j.streams[name] = s
-	return s, nil
+	return j.streamer.OpenRead(name)
 }
 
 func (j *Job) OpenWrite(name string) (io.WriteCloser, error) {
-	if _, exists := j.streams[name]; exists {
-		return nil, ErrStreamAlreadyExists
-	}
-
-	s := NewWriteStream(j.pool, j.keyParts("streams", "in"), name)
-	j.streams[name] = s
-	return s, nil
+	return j.streamer.OpenWrite(name)
 }
 
 func (j *Job) watch() error {
-	conn := j.pool.Get()
+	conn := j.streamer.pool.Get()
 	defer conn.Close()
 	for {
 		msg, err := j.popMessage(conn)
@@ -103,23 +87,17 @@ func (j *Job) watch() error {
 
 		// Check if job has ended
 		if msg.Id == "x" {
-			for _, stream := range j.streams {
-				if err := stream.Close(); err != nil {
-					return err
-				}
+			if err := j.streamer.Close(); err != nil {
+				return err
 			}
 		}
-
-		// If we have a stream write to it, if not we discard the message
-		if stream, ok := j.streams[msg.Id]; ok {
-			stream.stream <- msg.Body
-		}
+		j.streamer.writeMessage(msg)
 	}
 	return nil
 }
 
 func (j *Job) popMessage(conn redis.Conn) (*Message, error) {
-	reply, err := redis.MultiBulk(conn.Do("BLPOP", j.keyParts("out"), DEFAULTTIMEOUT))
+	reply, err := redis.MultiBulk(conn.Do("BLPOP", j.streamer.ReadKey, DEFAULTTIMEOUT))
 	if err != nil {
 		return nil, err
 	}
@@ -137,7 +115,7 @@ func (j *Job) Wait() error {
 		return nil
 	}
 
-	if _, err := send(j.pool, "BLPOP", j.keyParts("wait"), DEFAULTTIMEOUT); err != nil {
+	if _, err := send(j.streamer.pool, "BLPOP", j.keyParts("wait"), DEFAULTTIMEOUT); err != nil {
 		return err
 	}
 	Debugf("Job complete: %d", j.Id)
@@ -146,7 +124,7 @@ func (j *Job) Wait() error {
 
 func (j *Job) isComplete() (bool, error) {
 	// Check if job is already finished
-	status, err := send(j.pool, "GET", j.keyParts("status"))
+	status, err := send(j.streamer.pool, "GET", j.keyParts("status"))
 	if err != nil {
 		return false, fmt.Errorf("Error getting job status: %s", err)
 	}
@@ -159,15 +137,10 @@ func (j *Job) isComplete() (bool, error) {
 	return false, nil
 }
 
-func (j *Job) Close() error {
-	Debugf("Close job: %d", j.Id)
-	return nil
-}
-
 func (j *Job) writeArgs() error {
 	if len(j.Args) > 0 {
 		args := append([]interface{}{j.keyParts("args")}, asInterfaceSlice(j.Args)...)
-		if _, err := send(j.pool, "RPUSH", args...); err != nil {
+		if _, err := send(j.streamer.pool, "RPUSH", args...); err != nil {
 			return err
 		}
 	}
@@ -177,7 +150,7 @@ func (j *Job) writeArgs() error {
 func (j *Job) writeEnv() error {
 	if len(j.Env) > 0 {
 		env := append([]interface{}{j.keyParts("env")}, asInterfaceSlice(splitEnv(j.Env))...)
-		if _, err := send(j.pool, "HMSET", env...); err != nil {
+		if _, err := send(j.streamer.pool, "HMSET", env...); err != nil {
 			return err
 		}
 	}

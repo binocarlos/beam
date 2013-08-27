@@ -3,6 +3,7 @@ package beam
 import (
 	"fmt"
 	"github.com/garyburd/redigo/redis"
+	"io"
 	"net"
 	"os"
 	"path"
@@ -10,6 +11,12 @@ import (
 
 type Connector interface {
 	Connect() (net.Conn, error)
+}
+
+type Streamer interface {
+	OpenRead(name string) (io.ReadCloser, error)
+	OpenWrite(name string) (io.WriteCloser, error)
+	Close() error
 }
 
 type Worker struct {
@@ -36,7 +43,7 @@ func (w *Worker) RegisterJob(name string, h JobHandler) {
 // ServeJob is the server's default job handler. It is called every time a new job is created.
 // It looks up a handler registered at <name>, and calls it with the same arguments. If no handler
 // is registered, it returns an error.
-func (w *Worker) ServeJob(name string, args []string, env map[string]string, streams *Streamer, db DB) (err error) {
+func (w *Worker) ServeJob(name string, args []string, env map[string]string, streams Streamer, db DB) (err error) {
 	defer func() {
 		Debugf("Job returned: %s(%s) = %s", name, args, err)
 	}()
@@ -60,7 +67,7 @@ func (w *Worker) ServeJob(name string, args []string, env map[string]string, str
 // Additionally, a job may modify the server's database, which is shared with all other jobs.
 // This is similar to how multiple unix processes share access to the same filesystem.
 //
-type JobHandler func(name string, args []string, env map[string]string, streams *Streamer, db DB) error
+type JobHandler func(name string, args []string, env map[string]string, streams Streamer, db DB) error
 
 // Work runs an infinite loop, watching its database for new requests, starting job as requested,
 // moving stream data back and forth, and updating job status as it changes.
@@ -142,7 +149,6 @@ func (w *Worker) startJob(id string) error {
 	}
 	Debugf("Job env = %v", env)
 
-	// Setup streams
 	streams := NewStreamer(w.pool, w.KeyPath(id, "streams", "in"), w.KeyPath(id, "streams", "out"))
 	err = w.ServeJob(name, args, env, streams, w)
 

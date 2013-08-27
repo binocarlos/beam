@@ -1,11 +1,11 @@
 package main
 
 import (
-	"log"
-	"fmt"
 	"flag"
-	"strings"
+	"fmt"
 	"github.com/dotcloud/beam"
+	"log"
+	"strings"
 )
 
 // This is a placeholder for the beam command-line tool.
@@ -20,7 +20,7 @@ func main() {
 	}
 }
 
-func JobHello(name string, args []string, env map[string]string, streams *beam.Streamer, db beam.DB) error {
+func JobHello(name string, args []string, env map[string]string, streams beam.Streamer, db beam.DB) error {
 	fmt.Printf("Hello, %s!\n", strings.Join(args, " "))
 	return nil
 }
