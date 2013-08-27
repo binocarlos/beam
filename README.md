@@ -136,10 +136,13 @@ for line in readlines(stdin) {
 }
 RPUSH /jobs/$id/in "0:"
 
-# Read output streams
+# Process job output and events
 while true {
 	frame = BLPOP /jobs/$id/out
 	id, data = split(frame, ":")
+	if id == "x" {
+		print "Job $id is over"
+		break
 	if data == "" {
 		print "Stream $id is closed"
 	} else if id == "1" {
@@ -151,14 +154,14 @@ while true {
 	}
 }
 
-# Wait for the job to complete
-while true {
-	BLPOP /jobs/$id/wait
-	status = GET /jobs/$id/status
-	if status != "" {
-		print "Job $id exited with status $status"
-		break
-	}
+# Get job exit status
+status = GET /jobs/$id/status
+if status == null {
+	print "Job $id is still running"
+} else if status == "" {
+	print "Job $id was successful"
+} else 
+	print "Job $id exited with error $status"
 }
 
 ```
@@ -188,7 +191,7 @@ if err == nil {
 } else {
 	SET /job/$id/status string(err)
 }
-RPUSH /job/$id/wait $id
+RPUSH /job/$id/out "x"
 ```
 
 
