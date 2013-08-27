@@ -94,7 +94,9 @@ func (s *redisStream) ReadFrom(r io.Reader) (int64, error) {
 func (s *redisStream) Close() error {
 	// If readonly stream wait until buffer is flushed
 	if s.stream != nil {
+		Debugf("Closing stream: %s", s.Name)
 		close(s.stream)
+		Debugf("Waiting to flush stream: %s", s.Name)
 		<-s.wait
 	}
 	// Write terminating message

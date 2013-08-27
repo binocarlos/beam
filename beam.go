@@ -16,6 +16,8 @@ type DB interface {
 type Streamer interface {
 	OpenRead(name string) (io.ReadCloser, error)
 	OpenWrite(name string) (io.WriteCloser, error)
+	WriteMessage(msg *Message) error
+	CloseStream(name string) error
 	Close() error
 }
 
@@ -71,13 +73,14 @@ func (s *streamer) Close() error {
 	return nil
 }
 
-func (s *streamer) writeMessage(msg *Message) {
+func (s *streamer) WriteMessage(msg *Message) error {
 	if stream, exists := s.streams[msg.Id]; exists {
 		stream.stream <- msg.Body
 	}
+	return nil
 }
 
-func (s *streamer) closeStream(name string) error {
+func (s *streamer) CloseStream(name string) error {
 	if stream, exists := s.streams[name]; exists {
 		err := stream.Close()
 		if err == nil {

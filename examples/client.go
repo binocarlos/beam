@@ -36,8 +36,15 @@ func worker() {
 		defer out.Close()
 		defer errStr.Close()
 
+		read, err := streams.OpenRead("stdin")
+		if err != nil {
+			return err
+		}
+		defer read.Close()
+
 		p.Stdout = out
 		p.Stderr = errStr
+		p.Stdin = read
 
 		return p.Run()
 	})
@@ -65,6 +72,15 @@ func createJob(client *beam.Client) *beam.Job {
 			panic(err)
 		}
 		if _, err := io.Copy(os.Stderr, stderr); err != nil {
+			panic(err)
+		}
+	}()
+	go func() {
+		stdin, err := job.OpenWrite("stdin")
+		if err != nil {
+			panic(err)
+		}
+		if _, err := io.Copy(stdin, os.Stdin); err != nil {
 			panic(err)
 		}
 	}()
