@@ -99,7 +99,8 @@ func (s *redisStream) Close() error {
 	}
 	// Write terminating message
 	if s.pool != nil {
-		if _, err := s.Write([]byte{}); err != nil {
+		msg := []byte("-" + s.Name + ":")
+		if _, err := send(s.pool, "RPUSH", s.Key, msg); err != nil {
 			return err
 		}
 	}
