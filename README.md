@@ -93,7 +93,7 @@ A job has the following inputs:
 
 * Command-line arguments. This is an array of strings describing the job's arguments. For example: ["ping", "www.google.com"]
 
-* Environment. This is a set of key-value pairs organized in a hash. They are a form of configuration. For example: {"DEBUG": "1", "retries": "42}.
+* Environment. This is a set of key-value pairs organized in a hash. They are a form of configuration. For example: {"DEBUG": "1", "retries": "42"}.
 
 * Input streams. Once the job is started it may read data from any number of optional binary streams (similar to stdin in unix processes).
 The streams are framed, so they can be used for discrete messages as well as continuous octet streams.
