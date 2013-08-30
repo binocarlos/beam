@@ -16,6 +16,10 @@ type DB interface {
 type Streamer interface {
 	OpenRead(name string) (io.ReadCloser, error)
 	OpenWrite(name string) (io.WriteCloser, error)
+	ReadFrom(r io.Reader, name string) error
+	WriteTo(w io.Writer, name string) error
+	WriteMessage(msg *Message) error
+	CloseStream(name string) error
 	Close() error
 }
 
@@ -62,6 +66,28 @@ func (s *streamer) OpenWrite(name string) (io.WriteCloser, error) {
 	return rs, nil
 }
 
+func (s *streamer) WriteTo(w io.Writer, name string) error {
+	stream, err := s.OpenRead(name)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(w, stream); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *streamer) ReadFrom(r io.Reader, name string) error {
+	stream, err := s.OpenWrite(name)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(stream, r); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *streamer) Close() error {
 	for _, stream := range s.streams {
 		if err := stream.Close(); err != nil {
@@ -71,13 +97,14 @@ func (s *streamer) Close() error {
 	return nil
 }
 
-func (s *streamer) writeMessage(msg *Message) {
+func (s *streamer) WriteMessage(msg *Message) error {
 	if stream, exists := s.streams[msg.Id]; exists {
 		stream.stream <- msg.Body
 	}
+	return nil
 }
 
-func (s *streamer) closeStream(name string) error {
+func (s *streamer) CloseStream(name string) error {
 	if stream, exists := s.streams[name]; exists {
 		err := stream.Close()
 		if err == nil {

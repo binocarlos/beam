@@ -59,6 +59,14 @@ func newConnectionPool(connector Connector, size int) *redis.Pool {
 	}, size)
 }
 
+func popMessage(conn redis.Conn, key string) (*Message, error) {
+	reply, err := redis.MultiBulk(conn.Do("BLPOP", key, DEFAULTTIMEOUT))
+	if err != nil {
+		return nil, err
+	}
+	return parseMessage(reply)
+}
+
 func parseMessage(reply []interface{}) (*Message, error) {
 	b := reply[1].([]byte)
 

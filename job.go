@@ -76,11 +76,19 @@ func (j *Job) OpenWrite(name string) (io.WriteCloser, error) {
 	return j.streamer.OpenWrite(name)
 }
 
+func (j *Job) WriteTo(w io.Writer, name string) error {
+	return j.streamer.WriteTo(w, name)
+}
+
+func (j *Job) ReadFrom(r io.Reader, name string) error {
+	return j.streamer.ReadFrom(r, name)
+}
+
 func (j *Job) watch() error {
 	conn := j.streamer.pool.Get()
 	defer conn.Close()
 	for {
-		msg, err := j.popMessage(conn)
+		msg, err := popMessage(conn, j.streamer.ReadKey)
 		if err != nil {
 			return err
 		}
@@ -94,21 +102,15 @@ func (j *Job) watch() error {
 
 		// Check for closing specific stream
 		if msg.Id[0] == '-' {
-			if err := j.streamer.closeStream(msg.Id[1:]); err != nil {
+			if err := j.streamer.CloseStream(msg.Id[1:]); err != nil {
 				return err
 			}
 		}
-		j.streamer.writeMessage(msg)
+		if len(msg.Body) > 0 {
+			j.streamer.WriteMessage(msg)
+		}
 	}
 	return nil
-}
-
-func (j *Job) popMessage(conn redis.Conn) (*Message, error) {
-	reply, err := redis.MultiBulk(conn.Do("BLPOP", j.streamer.ReadKey, DEFAULTTIMEOUT))
-	if err != nil {
-		return nil, err
-	}
-	return parseMessage(reply)
 }
 
 func (j *Job) Wait() error {

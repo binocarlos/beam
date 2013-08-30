@@ -143,6 +143,36 @@ func (w *Worker) startJob(id string) error {
 	Debugf("Job env = %v", env)
 
 	streams := NewStreamer(w.pool, w.KeyPath(id, "streams", "in"), w.KeyPath(id, "streams", "out"))
+
+	// Start worker read event loop
+	go func() {
+		conn := w.pool.Get()
+		defer conn.Close()
+
+		for {
+			msg, err := popMessage(conn, streams.(*streamer).ReadKey)
+			if err != nil {
+				panic(err)
+			}
+
+			if msg.Id == "x" {
+				if err := streams.Close(); err != nil {
+					panic(err)
+				}
+			}
+			if msg.Id[0] == '-' {
+				if err := streams.CloseStream(msg.Id[1:]); err != nil {
+					panic(err)
+				}
+			}
+			if len(msg.Body) > 0 {
+				if err := streams.WriteMessage(msg); err != nil {
+					panic(err)
+				}
+			}
+		}
+	}()
+
 	err = w.ServeJob(name, args, env, streams, w)
 
 	Debugf("ServeJob complete")
