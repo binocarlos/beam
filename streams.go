@@ -1,7 +1,6 @@
 package beam
 
 import (
-	"bufio"
 	"errors"
 	"github.com/garyburd/redigo/redis"
 	"io"
@@ -71,24 +70,6 @@ func (s *redisStream) Read(p []byte) (int, error) {
 	s.isClosed = true
 
 	return 0, io.EOF
-}
-
-func (s *redisStream) ReadFrom(r io.Reader) (int64, error) {
-	var n int64
-	scanner := bufio.NewScanner(r)
-	for scanner.Scan() {
-		b := scanner.Bytes()
-
-		i, err := s.Write(append(b, '\n'))
-		n += int64(i)
-		if err != nil {
-			return n, err
-		}
-		if err := scanner.Err(); err != nil {
-			return n, err
-		}
-	}
-	return n, nil
 }
 
 func (s *redisStream) Close() error {

@@ -76,6 +76,14 @@ func (j *Job) OpenWrite(name string) (io.WriteCloser, error) {
 	return j.streamer.OpenWrite(name)
 }
 
+func (j *Job) WriteTo(w io.Writer, name string) error {
+	return j.streamer.WriteTo(w, name)
+}
+
+func (j *Job) ReadFrom(r io.Reader, name string) error {
+	return j.streamer.ReadFrom(r, name)
+}
+
 func (j *Job) watch() error {
 	conn := j.streamer.pool.Get()
 	defer conn.Close()
